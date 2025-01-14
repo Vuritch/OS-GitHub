@@ -469,16 +469,22 @@ void CommandProcessor::handleCls()
     // On Windows, use system("cls") to clear the screen
     system("cls");
 }
-void CommandProcessor::handleMd(const string& dirPath)
+void CommandProcessor::handleMd(const std::string& dirPath)
 {
-    // 1. Parse the path to separate parent path and directory name
-    string parentPath;
-    string dirName;
-
-    size_t lastSlash = dirPath.find_last_of("/\\");
-    if (lastSlash == string::npos)
+    // 1. Check if dirPath is empty
+    if (dirPath.empty())
     {
-        // Directory to be created in the current directory
+        std::cout << "Error: Invalid syntax for md command.\n"
+            << "Usage: md [directory_path]\n";
+        return;
+    }
+
+    // 2. Parse the path to get parent directory and directory name
+    std::string parentPath;
+    std::string dirName;
+    size_t lastSlash = dirPath.find_last_of("/\\");
+    if (lastSlash == std::string::npos)
+    {
         parentPath = "";
         dirName = dirPath;
     }
@@ -488,7 +494,26 @@ void CommandProcessor::handleMd(const string& dirPath)
         dirName = dirPath.substr(lastSlash + 1);
     }
 
-    // 2. Navigate to the parent directory
+    // 2.1. Trim trailing spaces from dirName inline
+    size_t end = dirName.find_last_not_of(' ');
+    if (end != std::string::npos)
+    {
+        dirName = dirName.substr(0, end + 1);
+    }
+    else
+    {
+        // The directory name is all spaces or empty after trimming
+        dirName = "";
+    }
+
+    // 3. Validate directory name
+    if (!isValidFileName(dirName))
+    {
+        std::cout << "Error: Invalid directory name '" << dirName << "'.\n";
+        return;
+    }
+
+    // 4. Navigate to parent directory
     Directory* parentDir = nullptr;
     if (parentPath.empty())
     {
@@ -497,60 +522,46 @@ void CommandProcessor::handleMd(const string& dirPath)
     else
     {
         parentDir = MoveToDir(parentPath);
-    }
-
-    if (parentDir == nullptr)
-    {
-        cout << "Error: Directory path '" << parentPath << "' does not exist.\n";
-        return;
-    }
-
-    // 3. Check if a file or directory with the same name already exists
-    for (const auto& entry : parentDir->DirOrFiles)
-    {
-        if (entry.getName() == dirName)
+        if (parentDir == nullptr)
         {
-            cout << "Error: A file or directory named '" << dirName << "' already exists.\n";
+            std::cout << "Error: Directory path '" << parentPath << "' does not exist.\n";
             return;
         }
     }
 
-    // 4. Allocate a new cluster for the directory
-    int newCluster = Mini_FAT::getAvailableCluster();
-    if (newCluster == -1)
+    // 5. Check for duplicates (case-insensitive)
+    for (const auto& entry : parentDir->DirOrFiles)
     {
-        cout << "Error: No available clusters to create directory.\n";
-        return;
+        if (!entry.getIsFile()) // Ensure we're comparing directories
+        {
+            std::string existingName = entry.getName();
+            std::string newName = dirName;
+
+            // Convert both names to lowercase for comparison
+            std::transform(existingName.begin(), existingName.end(), existingName.begin(),
+                [](unsigned char c) { return std::tolower(c); });
+            std::transform(newName.begin(), newName.end(), newName.begin(),
+                [](unsigned char c) { return std::tolower(c); });
+
+            if (existingName == newName)
+            {
+                std::cout << "Error: Directory '" << dirName << "' already exists.\n";
+                return;
+            }
+        }
     }
 
-    // 5. Initialize the new directory's FAT pointer
-    Mini_FAT::setClusterPointer(newCluster, -1); // -1 indicates EOF
+    // 6. Create the directory entry with dirName, dir_attr = 0x10 (directory)
+    Directory_Entry newDirEntry(dirName, 0x10, /*firstCluster=*/0);
+    // No need to set isFile here; Directory_Entry constructor should handle it
 
-    // 6. Clean the directory name without altering case
-    string cleanedName = Directory_Entry::cleanTheName(dirName);
-    if (cleanedName.empty())
-    {
-        cout << "Error: Invalid directory name.\n";
-        return;
-    }
-
-    // 7. Create a new Directory object
-    Directory* newDir = new Directory(cleanedName, 0x10, newCluster, parentDir);
-    newDir->readDirectory(); // Initialize directory entries (e.g., add '.' and '..')
-
-    // 8. Create a Directory_Entry using the existing constructor
-    Directory_Entry newDirEntry(cleanedName, 0x10, newCluster);
-
-    // 9. Manually assign the subDirectory pointer
-    newDirEntry.subDirectory = newDir;
-
-    // 10. Add the new directory entry to the parent directory's DirOrFiles
+    // 7. Add the new directory to the parent directory
     parentDir->DirOrFiles.push_back(newDirEntry);
 
-    // 11. Write the updated parent directory to the virtual disk (if applicable)
+    // 8. Persist changes
     parentDir->writeDirectory();
 
-    cout << "Directory '" << cleanedName << "' created successfully.\n";
+    std::cout << "Directory '" << newDirEntry.getName() << "' created successfully.\n";
 }
 
 
@@ -631,12 +642,20 @@ void CommandProcessor::handleRd(const vector<string>& directories)
         cout << "Directory '" << dirPath << "' deleted successfully.\n";
     }
 }
-
-string toUpper(const string& s)
+std::string CommandProcessor::toLower(const std::string& s)
 {
-    string result = s;
-    transform(result.begin(), result.end(), result.begin(),
-        [](unsigned char c) { return toupper(c); });
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
+
+// Convert string to uppercase
+std::string CommandProcessor::toUpper(const std::string& s)
+{
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(),
+        [](unsigned char c) { return std::toupper(c); });
     return result;
 }
 void CommandProcessor::handleCd(const string& path)
@@ -1049,97 +1068,125 @@ void CommandProcessor::handleDir(const std::string& path)
 
 void CommandProcessor::handleEcho(const std::string& filePath)
 {
-    // 1. Make a modifiable copy of filePath
-    std::string trimmed = filePath;
-
-    // 2. Trim leading spaces
-    size_t firstPos = trimmed.find_first_not_of(' ');
-    if (firstPos != std::string::npos) {
-        trimmed.erase(0, firstPos);
-    }
-    else {
-        trimmed.clear();
-    }
-
-    // 3. Trim trailing spaces
-    size_t lastPos = trimmed.find_last_not_of(' ');
-    if (lastPos != std::string::npos) {
-        trimmed.erase(lastPos + 1);
-    }
-    else {
-        trimmed.clear();
-    }
-
-    // 4. Check if trimmed is empty
-    if (trimmed.empty()) {
-        std::cout << "Error: Invalid syntax for echo command.\n"
-            << "Usage: echo [file_path]\n";
-        return;
-    }
-
-    // 5. Parse the path to get parent directory and file name
+    // 1. Parse the path to separate parent path and file name
     std::string parentPath;
     std::string fileName;
-    size_t lastSlash = trimmed.find_last_of("/\\");
-    if (lastSlash == std::string::npos) {
+
+    size_t lastSlash = filePath.find_last_of("/\\");
+    if (lastSlash == std::string::npos)
+    {
+        // File to be created in the current directory
         parentPath = "";
-        fileName = trimmed;
+        fileName = filePath;
     }
-    else {
-        parentPath = trimmed.substr(0, lastSlash);
-        fileName = trimmed.substr(lastSlash + 1);
+    else
+    {
+        parentPath = filePath.substr(0, lastSlash);
+        fileName = filePath.substr(lastSlash + 1);
     }
 
-    // 6. Validate file name
-    if (!isValidFileName(fileName)) {
-        std::cout << "Error: Invalid file name '" << fileName << "'.\n";
+    // 2. Store the original file name for messaging
+    std::string originalFileName = fileName;
+
+    // 3. Validate file name before processing
+    if (!isValidFileName(fileName))
+    {
+        std::cout << "Error: Invalid file name '" << originalFileName << "'.\n";
         return;
     }
 
-    // 7. Check for extension and append .txt if missing
+    // 4. Process the file name to ensure extension is lowercase
     size_t dotPos = fileName.find_last_of('.');
-    if (dotPos == std::string::npos || dotPos == 0 || dotPos == fileName.length() - 1) {
-        // No extension found or dot is at the start/end => append .txt
-        fileName += ".txt";
+    std::string mainName;
+    std::string extension;
+
+    if (dotPos == std::string::npos || dotPos == 0 || dotPos == fileName.length() - 1)
+    {
+        // No extension or invalid, append '.txt' in lowercase
+        mainName = fileName;
+        extension = "txt";
+    }
+    else
+    {
+        mainName = fileName.substr(0, dotPos);
+        extension = fileName.substr(dotPos + 1);
+        // Convert extension to lowercase
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char c) { return std::tolower(c); });
     }
 
-    // 8. **Remove or Comment Out This Step to Preserve Case**
-    // std::transform(fileName.begin(), fileName.end(), fileName.begin(), ::toupper);
+    // Reconstruct the processed file name
+    std::string processedFileName = mainName + (extension.empty() ? "" : "." + extension);
 
-    // 9. Navigate to parent directory
+    // 5. Create a temporary Directory_Entry to determine the actual filename
+    Directory_Entry tempEntry(processedFileName, 0x00, /*firstCluster=*/0);
+    std::string actualFileName = tempEntry.getName(); // e.g., "omar.txt"
+
+    // 6. Convert the main filename to lowercase for case-insensitive comparison
+    std::string mainNameLower = toLower(mainName);
+    std::string extensionLower = toLower(extension);
+    std::string comparisonFileName = mainNameLower + "." + extensionLower;
+
+    // 7. Navigate to the parent directory
     Directory* parentDir = nullptr;
-    if (parentPath.empty()) {
-        parentDir = *currentDirectoryPtr;
+    if (parentPath.empty())
+    {
+        parentDir = *currentDirectoryPtr; // Assuming currentDirectoryPtr is a pointer to Directory*
     }
-    else {
+    else
+    {
         parentDir = MoveToDir(parentPath);
-        if (parentDir == nullptr) {
-            std::cout << "Error: Directory path '" << parentPath << "' does not exist.\n";
-            return;
+    }
+
+    if (parentDir == nullptr)
+    {
+        std::cout << "Error: Directory path '" << parentPath << "' does not exist.\n";
+        return;
+    }
+
+    // 8. Check if the file or directory already exists using case-insensitive comparison
+    for (const auto& entry : parentDir->DirOrFiles)
+    {
+        std::string existingName = entry.getName();
+        size_t existingDotPos = existingName.find_last_of('.');
+        std::string existingMainName = (existingDotPos != std::string::npos) ? existingName.substr(0, existingDotPos) : existingName;
+        std::string existingExtension = (existingDotPos != std::string::npos) ? existingName.substr(existingDotPos + 1) : "";
+
+        // Convert existing main name and extension to lowercase
+        std::string existingMainNameLower = toLower(existingMainName);
+        std::string existingExtensionLower = toLower(existingExtension);
+        std::string existingComparisonName = existingMainNameLower + "." + existingExtensionLower;
+
+        // Compare with the new file's lowercased name
+        if (existingComparisonName == comparisonFileName)
+        {
+            if (entry.getIsFile())
+            {
+                std::cout << "Error: File '" << entry.getName() << "' already exists.\n";
+                return;
+            }
+            else
+            {
+                std::cout << "Error: A directory with the name '" << entry.getName() << "' already exists.\n";
+                return;
+            }
         }
     }
 
-    // 10. Check for duplicates
-    for (const auto& entry : parentDir->DirOrFiles) {
-        if (entry.getName() == fileName) {
-            std::cout << "Error: File or directory '" << fileName << "' already exists.\n";
-            return;
-        }
-    }
+    // 9. Create a new Directory_Entry as a file with dir_attr = 0x00
+    Directory_Entry newFile(processedFileName, 0x00, /*firstCluster=*/0); // dir_attr = 0x00 for file
 
-    // 11. Create the file entry with fileName, dir_attr = 0x00 (file)
-    Directory_Entry newFileEntry(fileName, 0x00, /*firstCluster=*/0);
-    // No need to set isFile here; Directory_Entry constructor should handle it
+    // 10. Add the new file to the parent directory
+    parentDir->addEntry(newFile);
 
-    // 12. Add the new file to the parent directory
-    parentDir->DirOrFiles.push_back(newFileEntry);
+    // 11. Persist changes
+    parentDir->writeDirectory(); // Ensure this function exists and works as expected
 
-    // 13. Persist changes
-    parentDir->writeDirectory();
+    // 12. Retrieve the actual file name from the Directory_Entry
+    std::string createdFileName = newFile.getName();
 
-    std::cout << "File '" << newFileEntry.getName() << "' created successfully.\n";
+    std::cout << "File '" << createdFileName << "' created successfully.\n";
 }
-
 
 
 
@@ -1152,7 +1199,6 @@ void CommandProcessor::handleWrite(const string& filePath)
     size_t lastSlash = filePath.find_last_of("/\\");
     if (lastSlash == string::npos)
     {
-        // File to be written in the current directory
         parentPath = "";
         fileName = filePath;
     }
@@ -1188,12 +1234,12 @@ void CommandProcessor::handleWrite(const string& filePath)
 
     // 4. Search for the file in the parent directory
     bool fileFound = false;
-    for (auto& entry : parentDir->DirOrFiles) // Iterate by reference
+    for (auto& entry : parentDir->DirOrFiles)
     {
+        
         if (entry.getName() == fileName)
         {
-
-            if (!entry.getIsFile())
+            if (!entry.getIsFile()) // Ensure entry is a file
             {
                 cout << "Error: '" << fileName << "' is a directory, not a file.\n";
                 return;
@@ -1216,7 +1262,7 @@ void CommandProcessor::handleWrite(const string& filePath)
             entry.setContent(newContent);
 
             // 7. Persist changes
-            parentDir->writeDirectory(); // Assuming this writes directory metadata to disk
+            parentDir->writeDirectory();
 
             cout << "Content written to '" << fileName << "' successfully.\n";
             fileFound = true;
@@ -1229,6 +1275,8 @@ void CommandProcessor::handleWrite(const string& filePath)
         cout << "Error: File '" << fileName << "' does not exist.\n";
     }
 }
+
+
 bool CommandProcessor::isValidFileName(const std::string& name) {
     if (name.empty() || name.length() > 11) {
         return false;

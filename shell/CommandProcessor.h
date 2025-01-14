@@ -1,6 +1,5 @@
 #ifndef COMMANDPROCESSOR_H
 #define COMMANDPROCESSOR_H
-
 #include "File_Entry.h"
 #include <iostream>
 #include <string>
@@ -21,8 +20,10 @@ public:
     CommandProcessor(Directory** currentDirPtr);
     // Process the input command
     void processCommand(const string& input, bool& isRunning);
-
+    std::string toLower(const std::string& s);
+    std::string toUpper(const std::string& s);
 private:
+   
     void showGeneralHelp();
     void showCommandHelp(const string& command);
     void handleCls();

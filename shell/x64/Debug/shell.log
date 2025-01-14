@@ -1,6 +1,7 @@
 ﻿  CommandProcessor.cpp
-  Converter.cpp
-C:\Users\omara\Desktop\COPY DONE\FINALLLLLLLLLLLLLLLLLLLLLLLLLLL\LATEST\NEWEST COPY\main - Copy - Copy\shell\shell\Converter.cpp(59,30): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  Directory.cpp
+C:\Users\omara\Desktop\COPY DONE\FINALLLLLLLLLLLLLLLLLLLLLLLLLLL\LATEST\NEWEST COPY\main - Copy - Copy\shell\shell\Directory.cpp(47,20): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  Directory_Entry.cpp
   shell.cpp
   Generating Code...
   shell.vcxproj -> C:\Users\omara\Desktop\COPY DONE\FINALLLLLLLLLLLLLLLLLLLLLLLLLLL\LATEST\NEWEST COPY\main - Copy - Copy\shell\x64\Debug\shell.exe

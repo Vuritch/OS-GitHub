@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstring>
 #include<iostream>
+#include "CommandProcessor.h"
 
 using namespace std; // Using std namespace for convenience
 Directory_Entry::Directory_Entry()
@@ -12,34 +13,32 @@ Directory_Entry::Directory_Entry()
     fill(begin(dir_name), end(dir_name), ' ');
     fill(begin(dir_empty), end(dir_empty), ' ');
 }
-
-// Constructor to initialize a Directory_Entry object
-Directory_Entry::Directory_Entry(string name, char attr, int firstCluster)
-    : dir_attr(attr), dir_firstCluster(firstCluster), dir_fileSize(0), subDirectory(nullptr)
+Directory_Entry::Directory_Entry(std::string name, char attr, int firstCluster)
+    : dir_attr(attr), dir_firstCluster(firstCluster), dir_fileSize(0), subDirectory(nullptr), content("")
 {
-    // Assign name based on attribute
-    if (attr == 0x10) // Directory
-    {
-        assignDir_Name(name);
-    }
-    else // File
-    {
-        // Split name and extension
+    if (attr == 0x00) { // 0x00 indicates a file
+        // Check if 'name' already has an extension
         size_t dotPos = name.find_last_of('.');
-        if (dotPos != string::npos)
-        {
-            string fileName = name.substr(0, dotPos);
-            string extension = name.substr(dotPos + 1);
-            assignFileName(fileName, extension);
+        if (dotPos == std::string::npos || dotPos == 0 || dotPos == name.length() - 1) {
+            // No extension or invalid, append '.txt' in lowercase
+            assignFileName(name, "txt"); // 'txt' is already in lowercase
         }
-        else
-        {
-            assignFileName(name, "");
+        else {
+            // Has extension, use as is (assuming handleEcho ensures it's lowercase)
+            std::string baseName = name.substr(0, dotPos);
+            std::string extension = name.substr(dotPos + 1); // Removed toLower
+            assignFileName(baseName, extension);
         }
+        isFile = true;
     }
-
-    // Initialize dir_empty with blanks
-    fill(begin(dir_empty), end(dir_empty), ' ');
+    else if (attr == 0x10) { // 0x10 indicates a directory
+        assignDir_Name(name);
+        isFile = false;
+    }
+    else {
+        // Handle other attributes if necessary
+        isFile = false; // Default to directory if unknown attribute
+    }
 }
 
 // Cleans the file/directory name to include only alphanumeric characters and underscores
